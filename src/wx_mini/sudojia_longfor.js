@@ -241,9 +241,9 @@ async function main(token) {
     await sleep(getRandomWait(1e3, 2e3));
     await sign(token, disposableKey);
     await sleep(getRandomWait(1e3, 2e3));
-    await lotterySign(token, disposableKey);
-    await sleep(getRandomWait(1e3, 2e3));
-    await lottery(token, disposableKey);
+    // await lotterySign(token, disposableKey);
+    // await sleep(getRandomWait(1e3, 2e3));
+    // await lottery(token, disposableKey);
 }
 
 async function getUserInfo(token) {
