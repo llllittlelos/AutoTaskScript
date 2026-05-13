@@ -9,6 +9,7 @@
  * export LONG_FOR_APP_TOKEN='你的token'    多账号用 & 或换行分隔
  * export LONG_FOR_APP_DX_TOKEN='你的X-LF-DXRisk-Token值'  可选，风控token
  * export LONG_FOR_APP_LOTTERY_ID='抽奖活动ID'  可选，不填则跳过抽奖
+ * export LONG_FOR_APP_COMPONENT_NO='抽奖组件ID'  可选，默认CC16D30B58Y4B15D
  *
  * cron: 39 8 * * *
  */
@@ -21,11 +22,13 @@ var message = '';
 
 var baseUrl = 'https://gw2c-hw-open.longfor.com';
 var API_KEY = 'c06753f1-3e68-437d-b592-b94656ea5517';
+var LLT_API_KEY = '2f9e3889-91d9-4684-8ff5-24d881438eaf';
 var BU_CODE = 'L00502';
 var DX_RISK_SOURCE = 1;
 var CHANNEL = 'L0';
-var ACTIVITY_NO_SIGN = process.env.LONG_FOR_APP_SIGN_ID || '11111111111686241863606037740000';
+var ACTIVITY_NO_SIGN = process.env.LONG_FOR_APP_SIGN_ID || '11111111111736501868255956070000';
 var ACTIVITY_NO_LOTTERY = process.env.LONG_FOR_APP_LOTTERY_ID || '';
+var COMPONENT_NO_LOTTERY = process.env.LONG_FOR_APP_COMPONENT_NO || 'CC16D30B58Y4B15D';
 
 var SECRET_KEY = '20jtGtg5TQ9V1A3Q4RsxBzJqb@^WUS%m';
 
@@ -148,6 +151,22 @@ function prepareHeaders(token, body) {
     return headerCp;
 }
 
+function prepareLltHeaders(token) {
+    return {
+        'Content-Type': 'application/json',
+        'authtoken': token,
+        'x-gaia-api-key': LLT_API_KEY,
+        'bucode': BU_CODE,
+        'channel': CHANNEL,
+        'cookie': 'token=' + token,
+        'origin': 'https://llt.longfor.com',
+        'referer': 'https://llt.longfor.com/',
+        'user-agent': 'Mozilla/5.0 (Linux; Android 13; Mi 10 Build/TKQ1.221114.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/108.0.5359.128 Mobile Safari/537.36 &MAIAWebKit_android_com.longfor.supera_1.25.0_320423153_Default_3.3.1.4',
+        'accept': 'application/json, text/plain, */*',
+        'accept-language': 'zh-CN,zh;q=0.9'
+    };
+}
+
 function getRandomWait(min, max) {
     return Math.floor(Math.random() * (max - min + 1)) + min;
 }
@@ -244,24 +263,23 @@ async function sign(token, disposableKey) {
     }
 }
 
-async function lotterySign(token, disposableKey) {
+async function lotterySign(token) {
     if (!ACTIVITY_NO_LOTTERY) {
         console.log('未配置抽奖活动ID，跳过抽奖签到');
         return;
     }
     try {
+        var headers = prepareLltHeaders(token);
         var body = {
             "activity_no": ACTIVITY_NO_LOTTERY,
-            "task_id": ""
+            "component_no": COMPONENT_NO_LOTTERY,
+            "task_type": 10
         };
-        if (disposableKey) {
-            body.disposableKey = disposableKey;
-        }
-        var data = await sendRequest(baseUrl + '/lmarketing-task-api-mvc-prod/openapi/task/v1/lottery/sign', 'post', prepareHeaders(token, body), body);
+        var data = await sendRequest(baseUrl + '/llt-gateway-prod/api/v1/activity/auth/enroll/sign/submit', 'post', headers, body);
         if ('0000' !== data.code) {
             return console.error('抽奖签到失败 ->', JSON.stringify(data));
         }
-        console.log('抽奖签到成功，获得' + data.data.ticket_times + '次抽奖机会');
+        console.log('抽奖签到成功');
         message += '抽奖签到成功\n';
     } catch (e) {
         console.error('抽奖签到时发生异常:');
@@ -270,28 +288,57 @@ async function lotterySign(token, disposableKey) {
     }
 }
 
-async function lottery(token, disposableKey) {
+async function getLotteryChance(token) {
+    if (!ACTIVITY_NO_LOTTERY) return 0;
+    try {
+        var headers = prepareLltHeaders(token);
+        var params = {
+            activity_no: ACTIVITY_NO_LOTTERY,
+            component_no: COMPONENT_NO_LOTTERY
+        };
+        var data = await sendRequest(baseUrl + '/llt-gateway-prod/api/v1/activity/auth/lottery/chance', 'get', headers, params);
+        if ('0000' === data.code && data.data) {
+            return data.data.chance || 0;
+        }
+        console.error('查询抽奖机会失败 ->', JSON.stringify(data));
+        return 0;
+    } catch (e) {
+        console.error('查询抽奖机会异常:');
+        if (e.response) console.error(JSON.stringify(e.response.data));
+        else console.error(e.message || e);
+        return 0;
+    }
+}
+
+async function lottery(token) {
     if (!ACTIVITY_NO_LOTTERY) {
         console.log('未配置抽奖活动ID，跳过抽奖');
         return;
     }
-    var maxRetry = 5;
+    var chance = await getLotteryChance(token);
+    if (chance <= 0) {
+        console.log('当前无抽奖机会');
+        message += '当前无抽奖机会\n';
+        return;
+    }
+    console.log('当前有' + chance + '次抽奖机会');
+    var maxRetry = Math.min(chance, 5);
     for (var i = 0; i < maxRetry; i++) {
         try {
+            var headers = prepareLltHeaders(token);
             var body = {
                 "activity_no": ACTIVITY_NO_LOTTERY,
-                "task_id": ""
+                "component_no": COMPONENT_NO_LOTTERY
             };
-            if (disposableKey) {
-                body.disposableKey = disposableKey;
-            }
-            var data = await sendRequest(baseUrl + '/lmarketing-task-api-mvc-prod/openapi/task/v1/lottery/luck', 'post', prepareHeaders(token, body), body);
+            var data = await sendRequest(baseUrl + '/llt-gateway-prod/api/v1/activity/auth/lottery/click', 'post', headers, body);
             if ('0000' !== data.code) {
                 console.error('第' + (i + 1) + '次抽奖失败:', JSON.stringify(data));
                 break;
             }
-            console.log('第' + (i + 1) + '次抽奖成功，获得' + data.data.desc);
-            message += '第' + (i + 1) + '次抽奖成功，获得' + data.data.desc + '\n';
+            var prizeName = data.data && data.data.prize_name ? data.data.prize_name : '未知奖品';
+            var remark = data.data && data.data.remark ? data.data.remark : '';
+            console.log('第' + (i + 1) + '次抽奖成功，获得: ' + prizeName + (remark ? ' (' + remark + ')' : ''));
+            message += '第' + (i + 1) + '次抽奖成功，获得: ' + prizeName + '\n';
             await sleep(getRandomWait(2e3, 4e3));
         } catch (e) {
             console.error('第' + (i + 1) + '次抽奖异常:');
@@ -309,9 +356,9 @@ async function main(token) {
     await sleep(getRandomWait(1e3, 2e3));
     await sign(token, disposableKey);
     await sleep(getRandomWait(1e3, 2e3));
-    await lotterySign(token, disposableKey);
+    await lotterySign(token);
     await sleep(getRandomWait(1e3, 2e3));
-    await lottery(token, disposableKey);
+    await lottery(token);
 }
 
 async function sendNotify(title, msg) {
