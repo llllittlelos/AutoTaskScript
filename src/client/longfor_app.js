@@ -240,7 +240,45 @@ async function sign(token) {
         else console.error(e.message || e);
     }
 }
-
+async function claimDailyChance(token) {
+    if (!ACTIVITY_NO_LOTTERY) return;
+    try {
+        var headers = prepareLltHeaders(token);
+        var body = {
+            "activity_no": ACTIVITY_NO_LOTTERY,
+            "component_no": COMPONENT_NO_LOTTERY,
+            "task_type": 10
+        };
+        var data = await sendRequest(baseUrl + '/llt-gateway-prod/api/v1/activity/auth/enroll/sign/receive', 'post', headers, body);
+        if ('0000' === data.code) {
+            console.log('领取每日抽奖机会成功');
+            message += '领取每日抽奖机会成功\n';
+        } else {
+            console.log('领取每日抽奖机会: ' + (data.msg || JSON.stringify(data)));
+        }
+    } catch (e) {
+        if (e.response && e.response.status === 404) {
+            try {
+                var headers2 = prepareLltHeaders(token);
+                var body2 = {
+                    "activity_no": ACTIVITY_NO_LOTTERY,
+                    "component_no": COMPONENT_NO_LOTTERY
+                };
+                var data2 = await sendRequest(baseUrl + '/llt-gateway-prod/api/v1/activity/auth/lottery/chance', 'post', headers2, body2);
+                if ('0000' === data2.code) {
+                    console.log('领取每日抽奖机会成功');
+                    message += '领取每日抽奖机会成功\n';
+                } else {
+                    console.log('领取每日抽奖机会: ' + (data2.msg || JSON.stringify(data2)));
+                }
+            } catch (e2) {
+                console.log('领取每日抽奖机会失败（接口可能已变更）');
+            }
+        } else {
+            console.log('领取每日抽奖机会异常: ' + (e.message || e));
+        }
+    }
+}
 async function getLotteryChance(token) {
     if (!ACTIVITY_NO_LOTTERY) return 0;
     try {
@@ -306,6 +344,8 @@ async function main(token) {
     await getUserInfo(token);
     await sleep(getRandomWait(1e3, 2e3));
     await sign(token);
+     await sleep(getRandomWait(1e3, 2e3));
+    await claimDailyChance(token);
     await sleep(getRandomWait(1e3, 2e3));
     await lottery(token);
 }
