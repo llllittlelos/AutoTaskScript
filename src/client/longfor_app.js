@@ -1,15 +1,42 @@
 /**
  * 龙湖天街APP签到（青龙面板版）
  *
- * 抓包方式：手机安装PCAPdroid（免Root抓包，不走WiFi代理，APP检测不到）
- *   或用Frida + r0capture抓包
- * 打开龙湖天街APP，操作一下，找到请求头中的 token 值
- *
  * 环境变量：
  * export LONG_FOR_APP_TOKEN='你的token'    多账号用 & 或换行分隔
- * export LONG_FOR_APP_DX_TOKEN='你的X-LF-DXRisk-Token值'  可选，风控token
  * export LONG_FOR_APP_LOTTERY_ID='抽奖活动ID'  可选，不填则跳过抽奖
  * export LONG_FOR_APP_COMPONENT_NO='抽奖组件ID'  可选，默认CC16D30B58Y4B15D
+ *
+ * ========== 变量获取方法 ==========
+ *
+ * 【LONG_FOR_APP_TOKEN】用户登录token（必填）
+ *   方法：ADB读取MMKV存储
+ *   1. 手机连接电脑，开启ADB：adb connect 192.168.6.127:5555
+ *   2. 读取token：
+ *      adb shell "su -c 'strings /data/data/com.longfor.supera/files/mmkv/MA_KV_DATA'" | findstr "token"
+ *   3. 在输出中找到 "token":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" 的值
+ *   注意：token会过期，API返回"登录已过期"时需重新获取
+ *
+ * 【LONG_FOR_APP_LOTTERY_ID】抽奖活动ID（可选）
+ *   含义：标识整个营销活动，如"5月抽奖活动"，一个活动包含多个组件
+ *   方法一：从MMKV中提取
+ *     adb shell "su -c 'strings /data/data/com.longfor.supera/files/mmkv/MA_KV_DATA'" | findstr "AP26"
+ *     找到类似 AP26N042T9O1TTQC 的值
+ *   方法二：从H5页面URL提取
+ *     在APP中打开抽奖页面，通过ADB获取当前WebView URL：
+ *     adb shell "su -c 'dumpsys activity top'" | findstr "llt.longfor.com"
+ *     URL格式：https://llt.longfor.com/{活动ID}/PP16330853O5QMLQ/index.html
+ *     其中 {活动ID} 就是此变量的值
+ *
+ * 【LONG_FOR_APP_COMPONENT_NO】抽奖组件ID（可选，默认CC16D30B58Y4B15D）
+ *   含义：标识活动中的具体交互组件（如转盘抽奖），一个活动可有多个组件
+ *   与活动ID的关系：活动=页面，组件=页面上的功能模块
+ *   方法一：从页面info API响应获取
+ *     curl -s "https://gw2c-hw-open.longfor.com/llt-gateway-prod/api/v1/page/info?activityNo=你的活动ID&pageNo=PP16330853O5QMLQ" \
+ *       -H "authtoken: 你的token" -H "x-gaia-api-key: 2f9e3889-91d9-4684-8ff5-24d881438eaf" \
+ *       -H "bucode: L00502" -H "channel: L0"
+ *     响应中的 component_no 字段即为组件ID
+ *   方法二：从H5页面网络请求中获取
+ *     用Chrome DevTools打开抽奖页面，查看任意API请求URL参数中的 component_no
  *
  * cron: 39 8 * * *
  */
@@ -17,16 +44,12 @@ const axios = require('axios');
 const crypto = require('crypto');
 
 var longForAppList = process.env.LONG_FOR_APP_TOKEN ? process.env.LONG_FOR_APP_TOKEN.split(/[\n&]/) : [];
-var dxRiskToken = process.env.LONG_FOR_APP_DX_TOKEN || '';
 var message = '';
 
 var baseUrl = 'https://gw2c-hw-open.longfor.com';
-var API_KEY = 'c06753f1-3e68-437d-b592-b94656ea5517';
 var LLT_API_KEY = '2f9e3889-91d9-4684-8ff5-24d881438eaf';
 var BU_CODE = 'L00502';
-var DX_RISK_SOURCE = 1;
 var CHANNEL = 'L0';
-var ACTIVITY_NO_SIGN = process.env.LONG_FOR_APP_SIGN_ID || '11111111111736501868255956070000';
 var ACTIVITY_NO_LOTTERY = process.env.LONG_FOR_APP_LOTTERY_ID || '';
 var COMPONENT_NO_LOTTERY = process.env.LONG_FOR_APP_COMPONENT_NO || 'CC16D30B58Y4B15D';
 
@@ -125,32 +148,6 @@ function prepareBaseHeaders(token, body) {
     return headerCp;
 }
 
-function prepareHeaders(token, body) {
-    var headerCp = JSON.parse(JSON.stringify(baseHeaders));
-    delete headerCp['X-GAIA-API-KEY'];
-    headerCp['token'] = token;
-    headerCp['X-GAIA-API-KEY'] = API_KEY;
-    headerCp['X-LF-UserToken'] = token;
-    headerCp['X-LF-Bu-Code'] = BU_CODE;
-    headerCp['X-LF-DXRisk-Source'] = String(DX_RISK_SOURCE);
-    headerCp['X-LF-DXRisk-Captcha-Token'] = 'undefined';
-    if (dxRiskToken) {
-        headerCp['X-LF-DXRisk-Token'] = dxRiskToken;
-    }
-    headerCp['X-LF-Channel'] = CHANNEL;
-    headerCp['Accept'] = 'application/json, text/plain, */*';
-    headerCp['X-LF-RequestId'] = getUUID();
-    headerCp['Origin'] = 'https://longzhu.longfor.com';
-    headerCp['Referer'] = 'https://longzhu.longfor.com/';
-    headerCp['X-Requested-With'] = 'com.longfor.supera';
-    headerCp['User-Agent'] = 'Mozilla/5.0 (Linux; Android 13; Mi 10 Build/TKQ1.221114.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/108.0.5359.128 Mobile Safari/537.36 &MAIAWebKit_android_com.longfor.supera_1.25.0_320423153_Default_3.3.1.4';
-    headerCp['Content-Type'] = 'application/json;charset=UTF-8';
-    var signData = generateSign(body);
-    headerCp['X-LONGZHU-Sign'] = signData['X-LONGZHU-Sign'];
-    headerCp['X-LONGZHU-TimeStamp'] = signData['X-LONGZHU-TimeStamp'];
-    return headerCp;
-}
-
 function prepareLltHeaders(token) {
     return {
         'Content-Type': 'application/json',
@@ -198,26 +195,6 @@ async function sendRequest(url, method, headers, data) {
     }
 }
 
-async function initKey(token) {
-    try {
-        var body = {};
-        var headerCp = prepareBaseHeaders(token, body);
-        var url = baseUrl + '/supera/mine/v1_25_0/token/token2key';
-        var data = await sendRequest(url, 'post', headerCp, body);
-        if (data && data.data && data.data.key) {
-            console.log('获取disposableKey成功: ' + data.data.key);
-            return data.data.key;
-        }
-        console.log('获取disposableKey失败: ' + JSON.stringify(data));
-        return '';
-    } catch (e) {
-        console.error('token2key接口调用失败:');
-        if (e.response) console.error(JSON.stringify(e.response.data));
-        else console.error(e.message || e);
-        return '';
-    }
-}
-
 async function getUserInfo(token) {
     try {
         var headerCp = prepareBaseHeaders(token, {});
@@ -237,35 +214,9 @@ async function getUserInfo(token) {
     }
 }
 
-async function sign(token, disposableKey) {
-    try {
-        var body = {
-            "activity_no": ACTIVITY_NO_SIGN
-        };
-        if (disposableKey) {
-            body.disposableKey = disposableKey;
-        }
-        var data = await sendRequest(baseUrl + '/lmarketing-task-api-mvc-prod/openapi/task/v1/signature/clock', 'post', prepareHeaders(token, body), body);
-        if ('0000' !== data.code) {
-            return console.error('签到失败 ->', JSON.stringify(data));
-        }
-        if (data.data.is_popup === 1) {
-            console.log('签到成功！成长值+' + data.data.reward_info[0].reward_num);
-            message += '签到成功！成长值+' + data.data.reward_info[0].reward_num + '\n';
-        } else {
-            console.log('今日已签到');
-            message += '今日已签到\n';
-        }
-    } catch (e) {
-        console.error('签到时发生异常:');
-        if (e.response) console.error(JSON.stringify(e.response.data));
-        else console.error(e.message || e);
-    }
-}
-
-async function lotterySign(token) {
+async function sign(token) {
     if (!ACTIVITY_NO_LOTTERY) {
-        console.log('未配置抽奖活动ID，跳过抽奖签到');
+        console.log('未配置抽奖活动ID，跳过签到');
         return;
     }
     try {
@@ -277,12 +228,14 @@ async function lotterySign(token) {
         };
         var data = await sendRequest(baseUrl + '/llt-gateway-prod/api/v1/activity/auth/enroll/sign/submit', 'post', headers, body);
         if ('0000' !== data.code) {
-            return console.error('抽奖签到失败 ->', JSON.stringify(data));
+            console.error('签到失败 ->', JSON.stringify(data));
+            message += '签到失败\n';
+            return;
         }
-        console.log('抽奖签到成功');
-        message += '抽奖签到成功\n';
+        console.log('签到成功');
+        message += '签到成功\n';
     } catch (e) {
-        console.error('抽奖签到时发生异常:');
+        console.error('签到时发生异常:');
         if (e.response) console.error(JSON.stringify(e.response.data));
         else console.error(e.message || e);
     }
@@ -350,13 +303,9 @@ async function lottery(token) {
 }
 
 async function main(token) {
-    var disposableKey = await initKey(token);
-    await sleep(getRandomWait(1e3, 2e3));
     await getUserInfo(token);
     await sleep(getRandomWait(1e3, 2e3));
-    await sign(token, disposableKey);
-    await sleep(getRandomWait(1e3, 2e3));
-    await lotterySign(token);
+    await sign(token);
     await sleep(getRandomWait(1e3, 2e3));
     await lottery(token);
 }
@@ -378,8 +327,8 @@ async function sendNotify(title, msg) {
 !(async () => {
     if (longForAppList.length === 0) {
         console.log('请设置环境变量 LONG_FOR_APP_TOKEN，多个token用换行或&分隔');
-        console.log('可选: LONG_FOR_APP_DX_TOKEN=风控token');
         console.log('可选: LONG_FOR_APP_LOTTERY_ID=抽奖活动ID');
+        console.log('可选: LONG_FOR_APP_COMPONENT_NO=抽奖组件ID');
         process.exit(1);
     }
 
