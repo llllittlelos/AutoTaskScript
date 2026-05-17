@@ -566,7 +566,7 @@ async function surplusNum() {
         var surplusNumber = (data && data.result && data.result.surplusNumber) || 0;
         console.log('剩余抽奖次数: ' + surplusNumber);
         if (surplusNumber <= 0) return;
-        var drawTimes = Math.min(surplusNumber, 50);
+        var drawTimes = Math.min(surplusNumber, 2);
         for (var i = 0; i < drawTimes; i++) {
             try {
                 var drawData = await sendRequest({
