@@ -47,6 +47,8 @@ var JwtHeaders = {
     'Host': 'caiyun.feixin.10086.cn:7071'
 };
 
+var JwtCookies = {};
+
 var currentAccount = '';
 var currentAuthorization = '';
 var currentAuthToken = '';
@@ -65,6 +67,12 @@ function getRandomWait(min, max) {
 
 async function sendRequest(config) {
     try {
+        if (config.cookies && Object.keys(config.cookies).length > 0) {
+            var cookieStr = Object.keys(config.cookies).map(function(k) { return k + '=' + config.cookies[k]; }).join('; ');
+            config.headers = config.headers || {};
+            config.headers['Cookie'] = cookieStr;
+            delete config.cookies;
+        }
         config.timeout = config.timeout || 15000;
         var response = await axios(config);
         return response.data;
@@ -109,7 +117,8 @@ async function getJwtToken(ssoToken) {
         var data = await sendRequest({
             method: 'post',
             url: 'https://caiyun.feixin.10086.cn:7071/portal/auth/tyrzLogin.action?ssoToken=' + ssoToken,
-            headers: JwtHeaders
+            headers: JwtHeaders,
+            cookies: JwtCookies
         });
         if (data.code === 0) {
             return data.result.token;
@@ -140,6 +149,8 @@ async function initAuth(authorization, account) {
     console.log('jwtToken获取成功');
 
     JwtHeaders['jwtToken'] = jwtToken;
+    JwtCookies['jwtToken'] = jwtToken;
+    JwtCookies['sensors_stay_time'] = String(Date.now());
     return true;
 }
 
@@ -147,16 +158,24 @@ async function querySignInStatus() {
     try {
         var data = await sendRequest({
             method: 'get',
-            url: 'https://caiyun.feixin.10086.cn/market/signin/page/info?client=app',
-            headers: JwtHeaders
+            url: 'https://caiyun.feixin.10086.cn:7071/market/signin/page/infoV3',
+            headers: Object.assign({}, JwtHeaders, { 'activityid': 'newsign_139mail', 'appversion': '0.0.0.0' }),
+            cookies: JwtCookies
         });
-        if (data.msg === 'success' && data.result && data.result.todaySignIn) {
-            console.log('今日已签到');
-            message += '今日已签到\n';
-            return true;
+        if (data.msg === 'success' && data.result) {
+            var signCount = data.result.signCount || 0;
+            var signInPoints = data.result.signInPoints || 0;
+            if (data.result.todaySignIn) {
+                console.log('今日已签到，累计签到' + signCount + '天，签到奖励' + signInPoints + '云朵');
+                message += '今日已签到，累计' + signCount + '天\n';
+                return true;
+            }
+            console.log('今日未签到，累计签到' + signCount + '天');
+            return false;
         }
         return false;
     } catch (e) {
+        console.log('查询签到状态异常: ' + (e.response ? JSON.stringify(e.response.data).substring(0, 200) : e.message || e));
         return false;
     }
 }
@@ -165,12 +184,15 @@ async function signIn() {
     try {
         var data = await sendRequest({
             method: 'get',
-            url: 'https://caiyun.feixin.10086.cn/market/manager/commonMarketconfig/getByMarketRuleName?marketName=sign_in_3',
-            headers: JwtHeaders
+            url: 'https://caiyun.feixin.10086.cn:7071/market/signin/page/startSignIn',
+            headers: Object.assign({}, JwtHeaders, { 'activityid': 'newsign_139mail', 'appversion': '0.0.0.0' }),
+            cookies: JwtCookies
         });
-        if (data.msg === 'success') {
-            console.log('签到成功');
-            message += '签到成功\n';
+        if (data.msg === 'success' && data.result && data.result.todaySignIn) {
+            var signInPoints = data.result.signInPoints || 0;
+            var signCount = data.result.signCount || 0;
+            console.log('签到成功！获得' + signInPoints + '云朵，累计签到' + signCount + '天');
+            message += '签到成功！+' + signInPoints + '云朵\n';
             return true;
         }
         console.log('签到失败: ' + (data.msg || JSON.stringify(data)));
@@ -191,7 +213,8 @@ async function doPoke() {
             var data = await sendRequest({
                 method: 'get',
                 url: 'https://caiyun.feixin.10086.cn/market/signin/task/click?key=task&id=319',
-                headers: JwtHeaders
+                headers: JwtHeaders,
+            cookies: JwtCookies
             });
             if (data && data.result) {
                 successCount++;
@@ -216,7 +239,8 @@ async function doShake() {
             var data = await sendRequest({
                 method: 'post',
                 url: 'https://caiyun.feixin.10086.cn:7071/market/shake-server/shake/shakeIt?flag=1',
-                headers: JwtHeaders
+                headers: JwtHeaders,
+            cookies: JwtCookies
             });
             if (data && data.result && data.result.shakePrizeConfig) {
                 console.log('摇一摇获得: ' + data.result.shakePrizeConfig.name);
@@ -239,7 +263,8 @@ async function wxAppSign() {
         var data = await sendRequest({
             method: 'get',
             url: 'https://caiyun.feixin.10086.cn/market/playoffic/followSignInfo?isWx=true',
-            headers: JwtHeaders
+            headers: JwtHeaders,
+            cookies: JwtCookies
         });
         if (data.msg === 'success' && data.result && data.result.todaySignIn) {
             console.log('公众号签到成功');
@@ -255,15 +280,38 @@ async function wxAppSign() {
 
 async function getTaskList(marketName) {
     try {
-        var data = await sendRequest({
-            method: 'get',
-            url: 'https://caiyun.feixin.10086.cn/market/signin/task/taskList?marketname=' + marketName,
-            headers: JwtHeaders
-        });
-        if (data.msg === 'success') {
-            return data.result || {};
+        var groups = ['new', 'time', 'day', 'month', 'cloudEmail', 'beiyong1', 'beiyong2', 'hidden'];
+        var allTasks = {};
+        for (var i = 0; i < groups.length; i++) {
+            try {
+                var data = await sendRequest({
+                    method: 'get',
+                    url: 'https://caiyun.feixin.10086.cn:7071/market/signin/task/taskListV2?marketname=' + marketName + '&clientVersion=&group=' + groups[i],
+                    headers: Object.assign({}, JwtHeaders, { 'activityid': marketName, 'appversion': '0.0.0.0' }),
+                    cookies: JwtCookies
+                });
+                if (data.msg === 'success' && data.result) {
+                    var groupTasks = data.result[groups[i]];
+                    if (Array.isArray(groupTasks) && groupTasks.length > 0) {
+                        allTasks[groups[i]] = groupTasks;
+                    }
+                }
+            } catch (e) { }
+            await sleep(300);
         }
-        return {};
+        // 兼容旧版 taskList 接口作为后备
+        if (Object.keys(allTasks).length === 0) {
+            var data = await sendRequest({
+                method: 'get',
+                url: 'https://caiyun.feixin.10086.cn/market/signin/task/taskList?marketname=' + marketName,
+                headers: JwtHeaders,
+                cookies: JwtCookies
+            });
+            if (data.msg === 'success') {
+                return data.result || {};
+            }
+        }
+        return allTasks;
     } catch (e) {
         return {};
     }
@@ -274,7 +322,8 @@ async function clickTask(taskId) {
         var data = await sendRequest({
             method: 'get',
             url: 'https://caiyun.feixin.10086.cn/market/signin/task/click?key=task&id=' + taskId,
-            headers: JwtHeaders
+            headers: JwtHeaders,
+            cookies: JwtCookies
         });
         return data;
     } catch (e) {
@@ -524,7 +573,8 @@ async function cloudGame() {
         var data = await sendRequest({
             method: 'get',
             url: 'https://caiyun.feixin.10086.cn/market/signin/hecheng1T/info?op=info',
-            headers: JwtHeaders
+            headers: JwtHeaders,
+            cookies: JwtCookies
         });
         var curr = (data && data.result && data.result.info && data.result.info.curr) || 0;
         var rank = (data && data.result && data.result.history && data.result.history[0] && data.result.history[0].rank) || '';
@@ -535,13 +585,15 @@ async function cloudGame() {
                 await sendRequest({
                     method: 'get',
                     url: 'https://caiyun.feixin.10086.cn/market/signin/hecheng1T/beinvite',
-                    headers: JwtHeaders
+                    headers: JwtHeaders,
+            cookies: JwtCookies
                 });
                 await sleep(getRandomWait(1e4, 15e3));
                 await sendRequest({
                     method: 'get',
                     url: 'https://caiyun.feixin.10086.cn/market/signin/hecheng1T/finish?flag=true',
-                    headers: JwtHeaders
+                    headers: JwtHeaders,
+            cookies: JwtCookies
                 });
                 console.log('云朵大作战完成一局');
             } catch (e) {
@@ -561,18 +613,20 @@ async function surplusNum() {
         var data = await sendRequest({
             method: 'get',
             url: 'https://caiyun.feixin.10086.cn/market/playoffic/drawInfo',
-            headers: JwtHeaders
+            headers: JwtHeaders,
+            cookies: JwtCookies
         });
         var surplusNumber = (data && data.result && data.result.surplusNumber) || 0;
         console.log('剩余抽奖次数: ' + surplusNumber);
         if (surplusNumber <= 0) return;
-        var drawTimes = Math.min(surplusNumber, 2);
+        var drawTimes = Math.min(surplusNumber, 50);
         for (var i = 0; i < drawTimes; i++) {
             try {
                 var drawData = await sendRequest({
                     method: 'get',
                     url: 'https://caiyun.feixin.10086.cn/market/playoffic/draw',
-                    headers: JwtHeaders
+                    headers: JwtHeaders,
+            cookies: JwtCookies
                 });
                 if (drawData && drawData.code === 0) {
                     console.log('抽奖成功: ' + (drawData.result && drawData.result.prizeName || ''));
@@ -594,14 +648,16 @@ async function backupCloud() {
         var data = await sendRequest({
             method: 'get',
             url: 'https://caiyun.feixin.10086.cn/market/backupgift/info',
-            headers: JwtHeaders
+            headers: JwtHeaders,
+            cookies: JwtCookies
         });
         var state = (data && data.result && data.result.state);
         if (state === 0) {
             var receiveData = await sendRequest({
                 method: 'get',
                 url: 'https://caiyun.feixin.10086.cn/market/backupgift/receive',
-                headers: JwtHeaders
+                headers: JwtHeaders,
+            cookies: JwtCookies
             });
             console.log('连续备份奖励: ' + ((receiveData && receiveData.result && receiveData.result.result) || '已领取'));
         } else if (state === 1) {
@@ -615,14 +671,16 @@ async function backupCloud() {
         var expandData = await sendRequest({
             method: 'get',
             url: 'https://caiyun.feixin.10086.cn/market/signin/page/taskExpansion',
-            headers: JwtHeaders
+            headers: JwtHeaders,
+            cookies: JwtCookies
         });
         if (expandData && expandData.result && expandData.result.preMonthBackup && !expandData.result.curMonthBackupTaskAccept) {
             var acceptDate = expandData.result.acceptDate;
             var receiveExpandData = await sendRequest({
                 method: 'get',
                 url: 'https://caiyun.feixin.10086.cn/market/signin/page/receiveTaskExpansion?acceptDate=' + acceptDate,
-                headers: JwtHeaders
+                headers: JwtHeaders,
+            cookies: JwtCookies
             });
             console.log('膨胀云朵领取: ' + ((receiveExpandData && receiveExpandData.result && receiveExpandData.result.cloudCount) || (receiveExpandData && receiveExpandData.msg) || '已领取'));
         }
@@ -636,7 +694,8 @@ async function openSend() {
         var data = await sendRequest({
             method: 'get',
             url: 'https://caiyun.feixin.10086.cn/market/msgPushOn/task/status',
-            headers: JwtHeaders
+            headers: JwtHeaders,
+            cookies: JwtCookies
         });
         if (data && data.result && data.result.pushOn === 1) {
             var types = [1, 2];
@@ -650,6 +709,7 @@ async function openSend() {
                             method: 'post',
                             url: 'https://caiyun.feixin.10086.cn/market/msgPushOn/task/obtain',
                             headers: JwtHeaders,
+                            cookies: JwtCookies,
                             data: { type: t }
                         });
                         console.log('通知奖励' + t + ': ' + ((obtainData && obtainData.result && obtainData.result.description) || '已处理'));
@@ -669,7 +729,8 @@ async function receiveClouds() {
         var data = await sendRequest({
             method: 'get',
             url: 'https://caiyun.feixin.10086.cn/market/signin/page/receive',
-            headers: JwtHeaders
+            headers: JwtHeaders,
+            cookies: JwtCookies
         });
         var receive = (data && data.result && data.result.receive) || 0;
         var total = (data && data.result && data.result.total) || 0;
