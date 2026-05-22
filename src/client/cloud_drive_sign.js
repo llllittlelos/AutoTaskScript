@@ -44,7 +44,7 @@ var UA = 'Mozilla/5.0 (Linux; Android 11; M2012K10C Build/RP1A.200720.011; wv) A
 var JwtHeaders = {
     'User-Agent': UA,
     'Accept': '*/*',
-    'Host': 'caiyun.feixin.10086.cn:7071'
+    'Host': 'm.mcloud.139.com'
 };
 
 var JwtCookies = {};
@@ -116,7 +116,7 @@ async function getJwtToken(ssoToken) {
     try {
         var data = await sendRequest({
             method: 'post',
-            url: 'https://caiyun.feixin.10086.cn:7071/portal/auth/tyrzLogin.action?ssoToken=' + ssoToken,
+            url: 'https://m.mcloud.139.com/portal/auth/tyrzLogin.action?ssoToken=' + ssoToken,
             headers: JwtHeaders,
             cookies: JwtCookies
         });
@@ -158,7 +158,7 @@ async function querySignInStatus() {
     try {
         var data = await sendRequest({
             method: 'get',
-            url: 'https://caiyun.feixin.10086.cn:7071/market/signin/page/infoV3',
+            url: 'https://m.mcloud.139.com/market/signin/page/infoV3?client=app',
             headers: Object.assign({}, JwtHeaders, { 'activityid': 'newsign_139mail', 'appversion': '0.0.0.0' }),
             cookies: JwtCookies
         });
@@ -184,7 +184,7 @@ async function signIn() {
     try {
         var data = await sendRequest({
             method: 'get',
-            url: 'https://caiyun.feixin.10086.cn:7071/market/signin/page/startSignIn',
+            url: 'https://m.mcloud.139.com/market/signin/page/startSignIn?client=app',
             headers: Object.assign({}, JwtHeaders, { 'activityid': 'newsign_139mail', 'appversion': '0.0.0.0' }),
             cookies: JwtCookies
         });
@@ -212,7 +212,7 @@ async function doPoke() {
         try {
             var data = await sendRequest({
                 method: 'get',
-                url: 'https://caiyun.feixin.10086.cn/market/signin/task/click?key=task&id=319',
+                url: 'https://m.mcloud.139.com/market/signin/task/click?key=task&id=319',
                 headers: JwtHeaders,
             cookies: JwtCookies
             });
@@ -238,7 +238,7 @@ async function doShake() {
         try {
             var data = await sendRequest({
                 method: 'post',
-                url: 'https://caiyun.feixin.10086.cn:7071/market/shake-server/shake/shakeIt?flag=1',
+                url: 'https://m.mcloud.139.com/market/shake-server/shake/shakeIt?flag=1',
                 headers: JwtHeaders,
             cookies: JwtCookies
             });
@@ -262,7 +262,7 @@ async function wxAppSign() {
     try {
         var data = await sendRequest({
             method: 'get',
-            url: 'https://caiyun.feixin.10086.cn/market/playoffic/followSignInfo?isWx=true',
+            url: 'https://m.mcloud.139.com/market/playoffic/followSignInfo?isWx=true',
             headers: JwtHeaders,
             cookies: JwtCookies
         });
@@ -286,7 +286,7 @@ async function getTaskList(marketName) {
             try {
                 var data = await sendRequest({
                     method: 'get',
-                    url: 'https://caiyun.feixin.10086.cn:7071/market/signin/task/taskListV2?marketname=' + marketName + '&clientVersion=&group=' + groups[i],
+                    url: 'https://m.mcloud.139.com/market/signin/task/taskListV2?marketname=' + marketName + '&clientVersion=&group=' + groups[i],
                     headers: Object.assign({}, JwtHeaders, { 'activityid': marketName, 'appversion': '0.0.0.0' }),
                     cookies: JwtCookies
                 });
@@ -303,7 +303,7 @@ async function getTaskList(marketName) {
         if (Object.keys(allTasks).length === 0) {
             var data = await sendRequest({
                 method: 'get',
-                url: 'https://caiyun.feixin.10086.cn/market/signin/task/taskList?marketname=' + marketName,
+                url: 'https://m.mcloud.139.com/market/signin/task/taskList?marketname=' + marketName,
                 headers: JwtHeaders,
                 cookies: JwtCookies
             });
@@ -321,7 +321,7 @@ async function clickTask(taskId) {
     try {
         var data = await sendRequest({
             method: 'get',
-            url: 'https://caiyun.feixin.10086.cn/market/signin/task/click?key=task&id=' + taskId,
+            url: 'https://m.mcloud.139.com/market/signin/task/click?key=task&id=' + taskId,
             headers: JwtHeaders,
             cookies: JwtCookies
         });
@@ -572,7 +572,7 @@ async function cloudGame() {
     try {
         var data = await sendRequest({
             method: 'get',
-            url: 'https://caiyun.feixin.10086.cn/market/signin/hecheng1T/info?op=info',
+            url: 'https://m.mcloud.139.com/market/signin/hecheng1T/info?op=info',
             headers: JwtHeaders,
             cookies: JwtCookies
         });
@@ -584,14 +584,14 @@ async function cloudGame() {
             try {
                 await sendRequest({
                     method: 'get',
-                    url: 'https://caiyun.feixin.10086.cn/market/signin/hecheng1T/beinvite',
+                    url: 'https://m.mcloud.139.com/market/signin/hecheng1T/beinvite',
                     headers: JwtHeaders,
             cookies: JwtCookies
                 });
                 await sleep(getRandomWait(1e4, 15e3));
                 await sendRequest({
                     method: 'get',
-                    url: 'https://caiyun.feixin.10086.cn/market/signin/hecheng1T/finish?flag=true',
+                    url: 'https://m.mcloud.139.com/market/signin/hecheng1T/finish?flag=true',
                     headers: JwtHeaders,
             cookies: JwtCookies
                 });
@@ -612,7 +612,7 @@ async function surplusNum() {
     try {
         var data = await sendRequest({
             method: 'get',
-            url: 'https://caiyun.feixin.10086.cn/market/playoffic/drawInfo',
+            url: 'https://m.mcloud.139.com/market/playoffic/drawInfo',
             headers: JwtHeaders,
             cookies: JwtCookies
         });
@@ -624,7 +624,7 @@ async function surplusNum() {
             try {
                 var drawData = await sendRequest({
                     method: 'get',
-                    url: 'https://caiyun.feixin.10086.cn/market/playoffic/draw',
+                    url: 'https://m.mcloud.139.com/market/playoffic/draw',
                     headers: JwtHeaders,
             cookies: JwtCookies
                 });
@@ -647,7 +647,7 @@ async function backupCloud() {
     try {
         var data = await sendRequest({
             method: 'get',
-            url: 'https://caiyun.feixin.10086.cn/market/backupgift/info',
+            url: 'https://m.mcloud.139.com/market/backupgift/info',
             headers: JwtHeaders,
             cookies: JwtCookies
         });
@@ -655,7 +655,7 @@ async function backupCloud() {
         if (state === 0) {
             var receiveData = await sendRequest({
                 method: 'get',
-                url: 'https://caiyun.feixin.10086.cn/market/backupgift/receive',
+                url: 'https://m.mcloud.139.com/market/backupgift/receive',
                 headers: JwtHeaders,
             cookies: JwtCookies
             });
@@ -670,7 +670,7 @@ async function backupCloud() {
     try {
         var expandData = await sendRequest({
             method: 'get',
-            url: 'https://caiyun.feixin.10086.cn/market/signin/page/taskExpansion',
+            url: 'https://m.mcloud.139.com/market/signin/page/taskExpansion',
             headers: JwtHeaders,
             cookies: JwtCookies
         });
@@ -678,7 +678,7 @@ async function backupCloud() {
             var acceptDate = expandData.result.acceptDate;
             var receiveExpandData = await sendRequest({
                 method: 'get',
-                url: 'https://caiyun.feixin.10086.cn/market/signin/page/receiveTaskExpansion?acceptDate=' + acceptDate,
+                url: 'https://m.mcloud.139.com/market/signin/page/receiveTaskExpansion?acceptDate=' + acceptDate,
                 headers: JwtHeaders,
             cookies: JwtCookies
             });
@@ -693,7 +693,7 @@ async function openSend() {
     try {
         var data = await sendRequest({
             method: 'get',
-            url: 'https://caiyun.feixin.10086.cn/market/msgPushOn/task/status',
+            url: 'https://m.mcloud.139.com/market/msgPushOn/task/status',
             headers: JwtHeaders,
             cookies: JwtCookies
         });
@@ -707,7 +707,7 @@ async function openSend() {
                     try {
                         var obtainData = await sendRequest({
                             method: 'post',
-                            url: 'https://caiyun.feixin.10086.cn/market/msgPushOn/task/obtain',
+                            url: 'https://m.mcloud.139.com/market/msgPushOn/task/obtain',
                             headers: JwtHeaders,
                             cookies: JwtCookies,
                             data: { type: t }
@@ -728,7 +728,7 @@ async function receiveClouds() {
     try {
         var data = await sendRequest({
             method: 'get',
-            url: 'https://caiyun.feixin.10086.cn/market/signin/page/receive',
+            url: 'https://m.mcloud.139.com/market/signin/page/receive',
             headers: JwtHeaders,
             cookies: JwtCookies
         });
