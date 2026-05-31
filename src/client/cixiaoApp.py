@@ -140,31 +140,11 @@ class CiXiaoApp:
             self.log("❌ Token无效，请重新抓包获取")
             return
 
-        # 2. 日常任务
+        # 2. 日常任务（含阅读新闻）
         await self.daily_tasks()
 
         # 3. 阅读红包活动
         await self.red_packet_read()
-
-        # 4. 普通阅读赚金币
-        await self.get_article_list()
-        if not self.art_list:
-            self.log("❌ 未获取到文章列表")
-            return
-
-        self.log(f"✅ 获取到 {len(self.art_list)} 篇文章")
-        num = 0
-        for art_id in self.art_list:
-
-            await self.read_task(art_id)
-            wait = random.uniform(10, 15)
-            self.log(f"等待 {wait:.1f} 秒...")
-            time.sleep(wait)
-            delay = random.randint(2, 5)
-            time.sleep(delay)
-            num += 1
-            if num >= 10:
-                break
 
         # 5. 查询阅读统计
         await self.get_read_stats()
@@ -293,7 +273,8 @@ class CiXiaoApp:
             # 5. 帖子评论点赞（只给正能量帖子的评论点赞）
             await self._do_posts_reply_like(task_list)
 
-            # 6. 阅读新闻（已在主流程中完成）
+            # 6. 阅读新闻（Native API，需要10次）
+            await self._do_read_news(task_list)
 
         except Exception as e:
             self.log(f"❌ 日常任务异常: {e}")
@@ -680,6 +661,44 @@ class CiXiaoApp:
         except Exception as e:
             self.log(f"❌ 帖子评论点赞异常: {e}")
 
+    async def _do_read_news(self, task_list=None):
+        """阅读新闻日常任务（Native API，需要10次）"""
+        try:
+            need_read = 10
+            if task_list:
+                for task in task_list:
+                    if "阅读新闻" in task.get("taskName", ""):
+                        if task.get("state") == 1:
+                            self.log("📋 阅读新闻任务已完成，跳过")
+                            return
+                        need_read = task.get("totalProgress", 10) - task.get("myProgress", 0)
+                        break
+
+            if need_read <= 0:
+                self.log("📋 阅读新闻任务已完成")
+                return
+
+            self.log(f"📋 阅读新闻: 还需{need_read}次")
+
+            await self.get_article_list()
+            if not self.art_list:
+                self.log("❌ 未获取到文章列表")
+                return
+
+            read_count = 0
+            for art_id in self.art_list:
+                if read_count >= need_read:
+                    break
+
+                await self.read_task(art_id)
+                read_count += 1
+                time.sleep(random.uniform(8, 15))
+
+            self.log(f"📋 阅读新闻: 完成{read_count}次")
+
+        except Exception as e:
+            self.log(f"❌ 阅读新闻任务异常: {e}")
+
     # ==================== H5 阅读红包活动 ====================
 
     async def red_packet_read(self):
@@ -723,9 +742,6 @@ class CiXiaoApp:
         from urllib.parse import quote
         referer = f"https://cxh5.xiaodingkeji.com/h5/redPacket/task.html?yunyingActivityTaskId={act_id}&taskName={quote(title)}&taskRound={round_num}"
 
-        # 标记本轮是否已在阅读过程中抽奖
-        self._drawn_this_round = False
-
         # 0. 检查验证码状态（腾讯防水墙）
         is_captcha_verified = await self._check_captcha(referer)
         if not is_captcha_verified:
@@ -759,6 +775,10 @@ class CiXiaoApp:
 
         # 2. 逐篇完成未读文章
         task_details = task_data.get("taskDetails", [])
+        completed_detail_ids = []
+        drawn_award_record_ids = set()
+        unread_count = uncomplete
+
         for detail in task_details:
             if detail.get("isComplete"):
                 continue
@@ -768,7 +788,7 @@ class CiXiaoApp:
             art_title = detail.get("title", "")[:20]
             art_url = detail.get("url", "")
 
-            # 1. 先打开文章页面（模拟APP中WebView加载文章，服务端可能据此验证阅读）
+            # 2.1 先打开文章页面（模拟APP中WebView加载文章）
             self.log(f"🧧 正在阅读: {art_title}...")
             if art_url:
                 try:
@@ -776,11 +796,11 @@ class CiXiaoApp:
                 except Exception:
                     pass
 
-            # 2. 模拟阅读等待（需12秒以上才能获得积分和抽奖资格）
+            # 2.2 模拟阅读等待（需12秒以上才能获得积分和抽奖资格）
             wait = random.uniform(13, 20)
             time.sleep(wait)
 
-            # 3. 提交阅读（带上阅读秒数）
+            # 2.3 提交阅读（带上阅读秒数）
             read_seconds = int(wait)
             res = self._h5_get("api/YunyingV720/ReadArticle", {
                 "taskDetailId": str(task_detail_id),
@@ -797,55 +817,33 @@ class CiXiaoApp:
                 addcoin = read_result.get("addcoin", 0)
                 studyscore = read_result.get("studyscore", 0)
                 self.log(f"🧧 阅读完成: {art_title}... (已读{self.read_count}篇, {read_seconds}秒)")
-                # 红包活动阅读本身不给积分(addcoin=0是正常的)，积分通过抽奖获得
                 if addcoin > 0 or studyscore > 0:
                     self.log(f"🧧 💰 额外获得: +{addcoin}积分 +{studyscore}学习分")
+                completed_detail_ids.append(task_detail_id)
+                unread_count -= 1
             else:
                 self.log(f"🧧 阅读失败: {art_title}... {read_result.get('message', '')}")
+                continue
 
-            # 4. 调用ChceckCompleteTaskDetail检查阅读完成状态并获取抽奖资格
-            #    这是H5页面在用户从文章返回时调用的关键API
-            #    它会返回 isComplete(是否完成) 和 isCanDrawAward(是否获得抽奖资格)
-            time.sleep(random.uniform(1, 2))
-            check_res = self._h5_get("api/YunyingV720/ChceckCompleteTaskDetail", {
-                "taskDetailId": str(task_detail_id),
-                "yunyingActivityTaskId": str(act_id),
-                "round": str(round_num),
-            }, referer=referer)
-
-            if check_res.text:
-                check_result = check_res.json()
-                if check_result.get("success"):
-                    check_data = check_result.get("data", {})
-                    is_complete = check_data.get("isComplete", False)
-                    is_can_draw = check_data.get("isCanDrawAward", False)
-                    award_record = check_data.get("awardRecord", {})
-
-                    if is_complete:
-                        self.log(f"🧧 ✅ 阅读验证通过: {art_title}...")
-                    else:
-                        self.log(f"🧧 ⚠️ 阅读验证未通过(阅读太快?)，服务端认为未完成")
-
-                    if is_can_draw and award_record:
-                        award_record_id = award_record.get("awardRecordId", 0)
-                        self.log(f"🧧 🎉 获得抽奖资格! awardRecordId={award_record_id}")
-                        # 立即抽奖
-                        await self._draw_single_award(award_record_id, referer)
-                        # 标记本轮已抽奖，避免阅读完成后重复抽奖
-                        self._drawn_this_round = True
-                else:
-                    self.log(f"🧧 检查阅读状态失败: {check_result.get('message', '')}")
-            else:
-                self.log(f"🧧 检查阅读状态无响应")
+            # 2.4 调用ChceckCompleteTaskDetail检查阅读完成状态
+            #     阅读过程中只检查1次（不重试），因为前9篇isCanDrawAward=false是正常的
+            #     只有全部读完时isCanDrawAward才会变为true
+            is_last = (unread_count == 0)
+            award_record_id = await self._check_and_draw(
+                task_detail_id, act_id, round_num, referer, art_title,
+                retry=is_last
+            )
+            if award_record_id:
+                drawn_award_record_ids.add(award_record_id)
 
             # 间隔
             time.sleep(random.uniform(1, 3))
 
-        # 3. 阅读完成后等待服务端处理，然后刷新确认
+        # 3. 阅读完成后等待服务端处理
         self.log("🧧 阅读完成，等待服务端处理...")
-        time.sleep(random.uniform(3, 6))
+        time.sleep(random.uniform(5, 8))
 
-        # 重新获取任务数据确认状态
+        # 3.1 兜底机制：重新获取任务数据，确认所有文章都已完成
         res = self._h5_get("api/YunyingV720/ReadActivityTaskData", {
             "yunyingActivityTaskId": str(act_id),
         }, referer=referer)
@@ -860,15 +858,77 @@ class CiXiaoApp:
 
                 if uncomplete > 0:
                     self.log(f"🧧 还有{uncomplete}篇未完成，继续阅读")
-                    # 递归处理剩余文章
                     await self._do_red_packet_task(act_id, title, round_num)
                     return
 
-        # 4. 全部完成后抽红包（如果阅读过程中已经抽过则跳过）
-        if self._drawn_this_round:
-            self.log("🧧 阅读过程中已抽奖，跳过重复抽奖")
-        else:
-            await self._draw_award(act_id, title, round_num)
+        # 3.2 兜底机制：如果阅读过程中未获得抽奖资格，逐篇重试检查
+        #     此时所有文章都已完成，isCanDrawAward应该为true
+        if not drawn_award_record_ids:
+            self.log("🧧 阅读过程中未获得抽奖资格，重新检查...")
+            for detail_id in completed_detail_ids:
+                award_record_id = await self._check_and_draw(
+                    detail_id, act_id, round_num, referer, "", retry=True
+                )
+                if award_record_id:
+                    drawn_award_record_ids.add(award_record_id)
+                    break
+
+        # 4. 最终兜底：通过CanDrawPrizeList检查是否有遗漏的抽奖资格
+        await self._draw_award(act_id, title, round_num)
+
+    async def _check_and_draw(self, task_detail_id, act_id, round_num, referer, art_title="", retry=False):
+        """检查阅读完成状态，如果获得抽奖资格则立即抽奖。返回awardRecordId或None
+        
+        Args:
+            retry: 是否在isCanDrawAward=false时重试（仅在全部文章读完后的兜底阶段使用）
+        """
+        max_retries = 3 if retry else 1
+        for attempt in range(max_retries):
+            check_res = self._h5_get("api/YunyingV720/ChceckCompleteTaskDetail", {
+                "taskDetailId": str(task_detail_id),
+                "yunyingActivityTaskId": str(act_id),
+                "round": str(round_num),
+            }, referer=referer)
+
+            if not check_res.text:
+                if attempt < max_retries - 1:
+                    time.sleep(random.uniform(2, 4))
+                    continue
+                self.log("🧧 检查阅读状态无响应")
+                return None
+
+            check_result = check_res.json()
+            if not check_result.get("success"):
+                self.log(f"🧧 检查阅读状态失败: {check_result.get('message', '')}")
+                return None
+
+            check_data = check_result.get("data", {})
+            is_complete = check_data.get("isComplete", False)
+            is_can_draw = check_data.get("isCanDrawAward", False)
+            award_record = check_data.get("awardRecord", {})
+
+            if is_complete:
+                if art_title:
+                    self.log(f"🧧 ✅ 阅读验证通过: {art_title}...")
+            else:
+                self.log(f"🧧 ⚠️ 阅读验证未通过(阅读太快?)，服务端认为未完成")
+                return None
+
+            if is_can_draw and award_record:
+                award_record_id = award_record.get("awardRecordId", 0)
+                self.log(f"🧧 🎉 获得抽奖资格! awardRecordId={award_record_id}")
+                await self._draw_single_award(award_record_id, referer)
+                return award_record_id
+
+            # isComplete=true 但 isCanDrawAward=false
+            if attempt < max_retries - 1:
+                self.log(f"🧧 已完成但暂无抽奖资格（重试{attempt+1}/{max_retries}）...")
+                time.sleep(random.uniform(3, 6))
+            else:
+                if retry:
+                    self.log(f"🧧 已完成但无抽奖资格（重试已用完）")
+
+        return None
 
     async def _draw_single_award(self, award_record_id, referer=""):
         """抽单个红包"""
@@ -1046,7 +1106,7 @@ def main():
 
 if __name__ == "__main__":
     # 测试模式：取消注释下面这行填入ck测试
-    # // os.environ[
-    # //     "cixiao_ck"] = "65-83-71-8B-71-66-A7-36-BA-1E-45-2F-A1-4B-2A-64-4F-5D-99-47-0D-CD-7E-DC-30-72-4B-4B-13-8B-63-01-4D-32-50-E3-D4-85-5C-17-F9-BF-CB-46-6A-AA-BC-9B-E5-12-5B-43-1F-F0-10-7A-71-9C-2C-7D-28-5D-8C-24-14-28-80-1F-44-82-2A-E6-06-79-72-57-F0-3B-F1-BA-B6-73-85-7F-3A-AD-FA-E5#863670#BB5AC7DB8130A4FC6C7BF8504D75F4CFA2258DD2"
+    # os.environ[
+    #     "cixiao_ck"] = "65-83-71-8B-71-66-A7-36-BA-1E-45-2F-A1-4B-2A-64-4F-5D-99-47-0D-CD-7E-DC-30-72-4B-4B-13-8B-63-01-4D-32-50-E3-D4-85-5C-17-F9-BF-CB-46-6A-AA-BC-9B-E5-12-5B-43-1F-F0-10-7A-71-9C-2C-7D-28-5D-8C-24-14-28-80-1F-44-82-2A-E6-06-79-72-57-F0-3B-F1-BA-B6-73-85-7F-3A-AD-FA-E5#863670#BB5AC7DB8130A4FC6C7BF8504D75F4CFA2258DD2"
 
     main()
